@@ -32,7 +32,7 @@ module.exports = __toCommonJS(index_exports);
 var import_react3 = require("react");
 
 // client/api.js
-var RPC_CHANNEL = "dsh-rate-badge";
+var RPC_CHANNEL = "/dsh-rate-badge";
 var RPC_ENDPOINTS = Object.freeze({
   /** Read the stored preferences. */
   getPrefs: "prefs.get",

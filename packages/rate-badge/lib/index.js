@@ -39,37 +39,52 @@ export function apply(ctx) {
   const file = prefsFilePath();
   let prefs = readPrefs(file);
 
-  const dispose = ctx.connection.rpc.handle(
-    RPC_CHANNEL,
-    async (endpoint, payload = {}, signal) => {
-      if (signal?.aborted) return fail('cancelled', 'The request was cancelled.');
-      try {
-        if (endpoint === RPC_ENDPOINTS.getPrefs) return ok({ prefs });
-        if (endpoint === RPC_ENDPOINTS.setPrefs) {
-          if (payload === null || typeof payload !== 'object') {
-            return fail('bad-request', 'payload must be an object of preference fields.');
+  // Guarded on purpose: `handle()` validates the channel and throws on a bad
+  // one, and a throw out of `apply()` fails the loader entry — which fails the
+  // ENTIRE DSH boot ("plugin tree failed to load"). A plugin must not be able to
+  // stop the harness from starting, so a registration failure degrades to "the
+  // toggle does not persist" instead: the client store reports itself
+  // unreachable and the settings page says so. The badge keeps working.
+  let dispose = () => {};
+  try {
+    dispose = ctx.connection.rpc.handle(
+      RPC_CHANNEL,
+      async (endpoint, payload = {}, signal) => {
+        if (signal?.aborted) return fail('cancelled', 'The request was cancelled.');
+        try {
+          if (endpoint === RPC_ENDPOINTS.getPrefs) return ok({ prefs });
+          if (endpoint === RPC_ENDPOINTS.setPrefs) {
+            if (payload === null || typeof payload !== 'object') {
+              return fail('bad-request', 'payload must be an object of preference fields.');
+            }
+            const next = normalizePrefs(payload, prefs);
+            const persisted = writePrefs(file, next);
+            // Adopt in memory even when the write failed: the running page should
+            // honour the toggle now, and the failure is reported alongside.
+            prefs = next;
+            if (!persisted) {
+              logger.warn?.(
+                'dsh-rate-badge: could not write %s — preference applies to this session only',
+                file,
+              );
+            }
+            return ok({ prefs, persisted });
           }
-          const next = normalizePrefs(payload, prefs);
-          const persisted = writePrefs(file, next);
-          // Adopt in memory even when the write failed: the running page should
-          // honour the toggle now, and the failure is reported alongside.
-          prefs = next;
-          if (!persisted) {
-            logger.warn?.(
-              'dsh-rate-badge: could not write %s — preference applies to this session only',
-              file,
-            );
-          }
-          return ok({ prefs, persisted });
+          return fail('bad-request', `Unknown endpoint: ${endpoint}`);
+        } catch (error) {
+          logger.error?.('dsh-rate-badge: rpc %s failed: %s', endpoint, error?.message ?? error);
+          return fail('bad-request', error?.message ?? String(error));
         }
-        return fail('bad-request', `Unknown endpoint: ${endpoint}`);
-      } catch (error) {
-        logger.error?.('dsh-rate-badge: rpc %s failed: %s', endpoint, error?.message ?? error);
-        return fail('bad-request', error?.message ?? String(error));
-      }
-    },
-    { authority: 'loopback' },
-  );
+      },
+      { authority: 'loopback' },
+    );
+  } catch (error) {
+    logger.error?.(
+      'dsh-rate-badge: could not register the %s RPC channel — settings will not persist: %s',
+      RPC_CHANNEL,
+      error?.message ?? error,
+    );
+  }
 
   ctx.effect(() => () => dispose(), 'dsh-rate-badge: dispose prefs rpc');
 }

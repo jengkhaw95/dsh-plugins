@@ -61,48 +61,64 @@ export function apply(ctx) {
   // they changed in the UI.
   let prefs = readPrefs(file);
 
-  const dispose = ctx.connection.rpc.handle(
-    RPC_CHANNEL,
-    async (endpoint, payload = {}, signal) => {
-      if (signal?.aborted) return fail('cancelled', 'The request was cancelled.');
-      try {
-        if (endpoint === RPC_ENDPOINTS.getPrefs) {
-          // `cueNames` travels with the preferences so the settings page can
-          // offer exactly the set this host will accept back — the picker can
-          // never show an option that silently fails to persist.
-          return ok({ prefs, cueNames: [...CUE_NAMES] });
-        }
-        if (endpoint === RPC_ENDPOINTS.setPrefs) {
-          if (payload === null || typeof payload !== 'object') {
-            return fail('bad-request', 'payload must be an object of preference fields.');
+  // Registration is guarded on purpose. `handle()` validates the channel and
+  // throws on a bad one, and a throw out of `apply()` fails the loader entry —
+  // which fails the ENTIRE DSH boot ("plugin tree failed to load"). A plugin
+  // must not be able to stop the harness from starting, so a registration
+  // failure degrades to "the settings page cannot save" instead: `prefs.get`
+  // never answers, the client store reports itself unreachable, and the page
+  // says so. The cue watcher keeps working throughout.
+  let dispose = () => {};
+  try {
+    dispose = ctx.connection.rpc.handle(
+      RPC_CHANNEL,
+      async (endpoint, payload = {}, signal) => {
+        if (signal?.aborted) return fail('cancelled', 'The request was cancelled.');
+        try {
+          if (endpoint === RPC_ENDPOINTS.getPrefs) {
+            // `cueNames` travels with the preferences so the settings page can
+            // offer exactly the set this host will accept back — the picker can
+            // never show an option that silently fails to persist.
+            return ok({ prefs, cueNames: [...CUE_NAMES] });
           }
-          const next = normalizePrefs(payload, prefs);
-          const persisted = writePrefs(file, next);
-          // Adopt the new values in memory even when the write failed: the
-          // running page should honour what the user just asked for, and the
-          // failure is reported alongside rather than swallowed.
-          prefs = next;
-          if (!persisted) {
-            logger.warn?.(
-              'dsh-session-notify: could not write %s — preferences apply to this session only',
-              file,
-            );
-            return ok({ prefs, cueNames: [...CUE_NAMES], persisted: false });
+          if (endpoint === RPC_ENDPOINTS.setPrefs) {
+            if (payload === null || typeof payload !== 'object') {
+              return fail('bad-request', 'payload must be an object of preference fields.');
+            }
+            const next = normalizePrefs(payload, prefs);
+            const persisted = writePrefs(file, next);
+            // Adopt the new values in memory even when the write failed: the
+            // running page should honour what the user just asked for, and the
+            // failure is reported alongside rather than swallowed.
+            prefs = next;
+            if (!persisted) {
+              logger.warn?.(
+                'dsh-session-notify: could not write %s — preferences apply to this session only',
+                file,
+              );
+              return ok({ prefs, cueNames: [...CUE_NAMES], persisted: false });
+            }
+            return ok({ prefs, cueNames: [...CUE_NAMES], persisted: true });
           }
-          return ok({ prefs, cueNames: [...CUE_NAMES], persisted: true });
+          return fail('bad-request', `Unknown endpoint: ${endpoint}`);
+        } catch (error) {
+          logger.error?.(
+            'dsh-session-notify: rpc %s failed: %s',
+            endpoint,
+            error?.message ?? error,
+          );
+          return fail('bad-request', error?.message ?? String(error));
         }
-        return fail('bad-request', `Unknown endpoint: ${endpoint}`);
-      } catch (error) {
-        logger.error?.(
-          'dsh-session-notify: rpc %s failed: %s',
-          endpoint,
-          error?.message ?? error,
-        );
-        return fail('bad-request', error?.message ?? String(error));
-      }
-    },
-    { authority: 'loopback' },
-  );
+      },
+      { authority: 'loopback' },
+    );
+  } catch (error) {
+    logger.error?.(
+      'dsh-session-notify: could not register the %s RPC channel — settings will not persist: %s',
+      RPC_CHANNEL,
+      error?.message ?? error,
+    );
+  }
 
   // The RPC registration belongs to this plugin's fiber: stop, update, or
   // removal must take the channel down with it.

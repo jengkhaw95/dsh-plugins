@@ -198,6 +198,6 @@ test('apply loads preferences over the documented channel', async () => {
   await new Promise((resolve) => { setImmediate(resolve); });
 
   assert.equal(rpcCalls.length, 1);
-  assert.equal(rpcCalls[0].channel, 'dsh-session-notify');
+  assert.equal(rpcCalls[0].channel, '/dsh-session-notify');
   assert.equal(rpcCalls[0].endpoint, 'prefs.get');
 });

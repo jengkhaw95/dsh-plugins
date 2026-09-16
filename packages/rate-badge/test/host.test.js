@@ -56,7 +56,7 @@ test('apply registers the documented channel with loopback authority', async () 
   await withTempHome(() => {
     const rpc = mount();
     assert.equal(rpc.channel, RPC_CHANNEL);
-    assert.equal(rpc.channel, 'dsh-rate-badge');
+    assert.equal(rpc.channel, '/dsh-rate-badge');
     assert.equal(rpc.options.authority, 'loopback');
   });
 });
@@ -123,5 +123,48 @@ test('the effect disposes the RPC channel', async () => {
     };
     apply(ctx);
     assert.equal(disposed, true, 'the channel is released with the fiber');
+  });
+});
+
+// ── regressions from the first published version ────────────────────────────
+
+test('the RPC channel satisfies the host channel pattern', () => {
+  // Asserted against the HOST'S rule rather than our own constant: comparing
+  // `rpc.channel` with `RPC_CHANNEL` is tautological and let a bare
+  // `dsh-rate-badge` ship. `assertChannel` throws from inside apply(), so that
+  // mistake failed the loader entry and the whole DSH boot.
+  //
+  // Rule: packages/client/connection/src/rpc-host.ts, `assertChannel`.
+  const HOST_CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/;
+  assert.match(RPC_CHANNEL, HOST_CHANNEL_PATTERN, 'a leading slash is required');
+  assert.notEqual(RPC_CHANNEL, '/api', '/api is reserved by the host');
+  assert.equal(RPC_CHANNEL.split('/').length - 1, 1, 'exactly one path segment');
+});
+
+test('a rejected channel registration degrades instead of failing the boot', async () => {
+  await withTempHome(() => {
+    let logged = '';
+    const ctx = {
+      logger: () => ({ warn() {}, error: (message) => { logged = String(message); } }),
+      connection: {
+        rpc: { handle: () => { throw new Error('connection: invalid or reserved RPC channel'); } },
+      },
+      effect: () => () => {},
+    };
+    assert.doesNotThrow(() => apply(ctx), 'a bad channel must not escape apply()');
+    assert.match(logged, /could not register/, 'and the failure must be reported');
+  });
+});
+
+test('the fiber still owns a disposer when registration fails', async () => {
+  await withTempHome(() => {
+    let effectLabel = '';
+    const ctx = {
+      logger: () => ({ warn() {}, error() {} }),
+      connection: { rpc: { handle: () => { throw new Error('nope'); } } },
+      effect: (callback, label) => { callback(); effectLabel = label; return () => {}; },
+    };
+    apply(ctx);
+    assert.match(effectLabel, /dispose prefs rpc/, 'the fiber still owns a disposer');
   });
 });

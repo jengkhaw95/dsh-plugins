@@ -33,7 +33,7 @@ module.exports = __toCommonJS(index_exports);
 var import_react2 = require("react");
 
 // client/api.js
-var RPC_CHANNEL = "dsh-session-notify";
+var RPC_CHANNEL = "/dsh-session-notify";
 var RPC_ENDPOINTS = Object.freeze({
   /** Read the stored preferences (and the host's cue allowlist). */
   getPrefs: "prefs.get",
