@@ -99,21 +99,49 @@ twice and the plugin would mount twice, registering its RPC channel and its
 settings section a second time. Overriding a row by id requires a non-insert
 patch (`- id: session-notify, disabled: true`), not a second insert.
 
-To pick up a newer commit:
+### Updating: git install vs local link
+
+Weight this before choosing, because it decides what `git reset --hard` does.
+
+| | `dsh plugin … add github:…` | `dsh plugin … add ./packages/…` |
+|---|---|---|
+| On disk | tarball extracted into the profile | `link:` → a symlink to this repo |
+| Commit | **pinned** in the profile's `pnpm-lock.yaml` | whatever the working tree is |
+| After `git reset --hard` | **nothing changes** — DSH still loads the pinned commit | DSH loads the new code on the next start |
+| To update | `dsh plugin --profile web update dsh-session-notify` | `pnpm dsh web` |
+| Good for | shipping, other machines, a known-good version | iterating on these plugins here |
+
+Both were verified end to end: in each case both plugins activate, appear in the
+client entry graph with their inject edges, and their combo script is served with
+the expected loader ids.
+
+So the development loop is only these three commands if you install the **local
+link**:
 
 ```sh
-dsh plugin --profile web update dsh-session-notify
+git fetch && git reset --hard
+pnpm dsh web          # from the deepseek-harness checkout
 ```
 
-### Installing a local checkout instead
-
-Useful while developing, since an edit to `lib/client.js` takes effect on the
-next page reload with no re-install and no restart — the profile's patch layer
-is the one thing the launcher watches live:
+With the git install in place you are one command short — `git reset --hard`
+updates this repo, but the profile keeps loading the pinned tarball, so a change
+looks like it did nothing. Switch to the local link with:
 
 ```sh
-dsh plugin --profile web add ./packages/session-notify
+dsh plugin --profile web remove dsh-session-notify dsh-rate-badge
+dsh plugin --profile web add ./packages/session-notify ./packages/rate-badge
 ```
+
+and back to a pinned install with:
+
+```sh
+dsh plugin --profile web remove dsh-session-notify dsh-rate-badge
+dsh plugin --profile web add "github:jengkhaw95/dsh-plugins#path:packages/session-notify" \
+                            "github:jengkhaw95/dsh-plugins#path:packages/rate-badge"
+```
+
+Either way a **restart** is required, not just a page reload: `dsh.profile.bundles`
+is composed at boot. `pnpm dsh web` is that restart.
 
 ## Build and test
 
