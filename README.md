@@ -66,10 +66,25 @@ Regenerating the bundle is a local concern:
 cd packages/session-notify && npm install && npm run build:client
 ```
 
-**Reload the Web GUI page afterwards.** The client entry graph is injected into
-the HTML at page load, so an already-open tab cannot see a newly mounted plugin.
-A patch edit alone is picked up live (`patchReload: live`), but a new bundle is
-not.
+**Two gates before you see anything: restart DSH, then reload the page.**
+
+- **Restart DSH.** `dsh.profile.bundles` is composed once at boot
+  (`composeLive()` in `apps/cli/src/profile-boot.ts` re-reads only the two
+  `cordis.patch.yml` files), so a bundle added to that list mounts on the next
+  start, not immediately. `patchReload: live` covers patch-file edits only.
+- **Reload the browser page.** The client entry graph is injected into the HTML
+  at page load, so an already-open tab cannot see a newly mounted browser half
+  even once the host half is up.
+
+### Do not also insert the rows by hand
+
+A tempting shortcut is to add `- insert: [id: session-notify, …]` to the
+profile's own `cordis.patch.yml` so the plugin appears without a restart.
+**Don't** — `insert` *appends* and never replaces by id
+(`vendor/include/src/index.ts`: `data.push(...insert)`), so the row would exist
+twice and the plugin would mount twice, registering its RPC channel and its
+settings section a second time. Overriding a row by id requires a non-insert
+patch (`- id: session-notify, disabled: true`), not a second insert.
 
 To pick up a newer commit:
 
@@ -79,18 +94,13 @@ dsh plugin --profile web update dsh-session-notify
 
 ### Installing a local checkout instead
 
-Useful while developing, since edits to `lib/client.js` take effect on reload
-without a re-install:
+Useful while developing, since an edit to `lib/client.js` takes effect on the
+next page reload with no re-install and no restart — the profile's patch layer
+is the one thing the launcher watches live:
 
 ```sh
 dsh plugin --profile web add ./packages/session-notify
 ```
-
-The plugins in this workspace are currently also linked that way, so both routes
-are live at once. If you prefer only the git install, remove the `session-notify`
-and `rate-badge` rows this repository added to
-`~/.dsh/profiles/web/cordis.patch.yml` and delete the two symlinks from that
-profile's `node_modules`.
 
 ## Build and test
 

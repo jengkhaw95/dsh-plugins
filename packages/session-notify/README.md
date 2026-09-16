@@ -68,11 +68,14 @@ silent too.
 dsh plugin --profile web add "github:jengkhaw95/dsh-plugins#path:packages/session-notify"
 ```
 
-Then reload the Web GUI page — the client entry graph is injected at page load.
+**Restart DSH, then reload the page.** Adding a bundle to `dsh.profile.bundles` takes effect
+on the next boot (only the `cordis.patch.yml` layers are re-read live), and the browser half
+is injected into the page at load time.
 
 No build step and no `allowBuilds` approval is needed: `lib/client.js` is committed and the
 package declares no `prepare` script, so pnpm has nothing to build. To work on a local
-checkout instead, pass the directory (`dsh plugin --profile web add ./packages/session-notify`).
+checkout instead, pass the directory (`dsh plugin --profile web add ./packages/session-notify`) — a
+profile-patch install is the one form that applies without a restart.
 
 ## Build and test
 
