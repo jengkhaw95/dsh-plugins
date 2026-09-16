@@ -61,7 +61,7 @@ profile-patch install is the one form that applies without a restart.
 ```sh
 npm install
 npm run build:client   # writes lib/client.js
-npm test               # 31 tests
+npm test               # 34 tests
 ```
 
 `lib/client.js` is committed, so installing does not require a build, and the
