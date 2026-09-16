@@ -54,6 +54,19 @@ dsh plugin --profile web add "github:jengkhaw95/dsh-plugins#path:packages/rate-b
 installed package to `dsh.profile.bundles`, so the bundle's own
 `cordis.patch.yml` becomes the layer that mounts it.
 
+**`dsh` is the launcher, and it is not always on your `PATH`.** Use whichever
+form matches how DSH is installed on the machine:
+
+| How DSH is installed | Install a plugin with |
+|---|---|
+| npm package | `npx @deepseek-ai/dsh plugin --profile web add …` |
+| source checkout | `pnpm dsh plugin --profile web add …` (run from the checkout root) |
+| source checkout, built launcher | `node apps/cli/lib/bin.js plugin --profile web add …` |
+
+All three are the same command; only the way the launcher is reached differs.
+The plugin subcommand never boots the harness — it only runs pnpm and rewrites
+the profile manifest — so it is safe to run while DSH is up.
+
 **No build step and no `allowBuilds` prompt.** Git installs normally run the
 package's `prepare` script, which pnpm ≥10 blocks until you allowlist it. These
 packages deliberately declare no `prepare` script: `lib/client.js` is committed,
