@@ -129,6 +129,56 @@ npm test                 # node --test test/*.test.js
 `lib/client.js` is committed, so installing a package never requires a build
 step — the same trade the reference plugin in this profile makes.
 
+## Troubleshooting
+
+Two failure modes cost real time while building these. Both are worth knowing
+before you write a DSH plugin of your own.
+
+### 1. A throwing plugin gets permanently disabled — fixing the code is not enough
+
+The loader treats a fiber it had to dispose as a broken row and **writes the
+disable back into your profile's patch file**
+(`vendor/loader/src/index.ts`, the disposal interceptor: `fiber.entry.options.disabled = true`
+followed by `fiber.entry.parent.tree.write()`).
+
+So after any plugin throws during `apply()`, your profile ends up looking like
+this, and it stays that way across restarts:
+
+```yaml
+# ~/.dsh/profiles/web/cordis.patch.yml
+- id: session-notify
+  disabled: true
+- id: rate-badge
+  disabled: true
+```
+
+A disabled row has **no fiber**, and the client scan skips fiber-less rows, so
+the plugin silently does nothing — no error, no log, no boot failure. Fixing the
+code and reinstalling changes nothing until those two entries are removed.
+
+If a plugin loads but does nothing, check this file:
+
+```sh
+cat ~/.dsh/profiles/web/cordis.patch.yml
+```
+
+### 2. The RPC channel must start with `/`
+
+`ctx.connection.rpc.handle()` validates against
+`/^\/[A-Za-z0-9._~-]+$/` (`packages/client/connection/src/rpc-host.ts`,
+`assertChannel`). A bare `my-plugin` is rejected, and because the check runs
+inside `apply()`, the throw fails the loader entry and the **whole harness**
+refuses to start:
+
+```
+Error: dsh: plugin tree failed to load: loader fibers failed
+  failed to apply loader entry … connection: invalid or reserved RPC channel "…"
+```
+
+Use `'/my-plugin'`. Both host halves here also wrap registration in `try/catch`
+so that a mistake of this class degrades to "settings cannot be saved" instead of
+a dead harness — a plugin should never be able to stop DSH from booting.
+
 ## Design notes
 
 **Why the host half exists at all.** A cue plays in the browser and the badge is
