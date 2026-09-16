@@ -1,0 +1,8 @@
+# dsh-rate-badge bundle patch.
+# The host row exists for one reason: DSH discovers a browser half by scanning
+# live Loader entries for packages declaring `dsh.client`, so a client-only
+# plugin still needs a mounted row. That row also owns the durable on/off
+# preference, which is what makes the settings toggle survive a restart.
+- insert:
+    - id: rate-badge
+      name: dsh-rate-badge

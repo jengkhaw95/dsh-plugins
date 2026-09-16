@@ -1,0 +1,159 @@
+# dsh-plugins
+
+Two local plugins for the DeepSeek Harness Web GUI, each a self-contained
+installable bundle.
+
+| Package | What it does |
+|---|---|
+| [`packages/session-notify`](packages/session-notify) | Plays a [cuelume](https://cuelume.dev/) cue when the **main** session finishes a turn or needs your input. Subagent sessions stay silent. |
+| [`packages/rate-badge`](packages/rate-badge) | A session-header badge showing whether DeepSeek's **peak or off-peak** API pricing window is active, with an on/off setting. |
+
+Both follow the bundle convention described in the harness's own
+[publish guide](../../deepseek-harness/docs/user/develop/basic/publish.md): a
+`package.json` declaring `dsh.bundle` and `dsh.client`, a `cordis.patch.yml`
+layer, a Node host half, and a browser half bundled by esbuild into
+`lib/client.js`.
+
+## Layout
+
+```
+packages/session-notify/
+├── package.json          # dsh.bundle (patch) + dsh.client (platform: web)
+├── cordis.patch.yml      # the loader row this bundle inserts
+├── lib/
+│   ├── index.js          # host half: loopback RPC over the preference file
+│   ├── prefs.js          # the preference schema + validation
+│   └── client.js         # BUILD OUTPUT — the served browser bundle
+├── client/               # browser-half source (bundled into lib/client.js)
+│   ├── index.jsx         # apply(): slots + the session watcher
+│   ├── watch.js          # when to make a sound
+│   ├── cues.js           # everything that touches cuelume
+│   ├── SettingsSection.jsx
+│   ├── prefs-store.js
+│   ├── i18n.js
+│   ├── styles.js
+│   └── api.js            # the wire contract, imported by BOTH halves
+├── scripts/build-client.mjs
+└── test/                 # node:test — 32 tests
+```
+
+`packages/rate-badge` has the same shape, minus the audio layer and plus
+`client/rate-period.js` (the pricing-window math).
+
+## Install
+
+Each plugin installs straight from this repository. pnpm supports a git
+subdirectory spec (`#path:`), so one repository can hold both bundles:
+
+```sh
+dsh plugin --profile web add "github:jengkhaw95/dsh-plugins#path:packages/session-notify"
+dsh plugin --profile web add "github:jengkhaw95/dsh-plugins#path:packages/rate-badge"
+```
+
+`dsh plugin` forwards to pnpm in the profile directory and then adds each
+installed package to `dsh.profile.bundles`, so the bundle's own
+`cordis.patch.yml` becomes the layer that mounts it.
+
+**No build step and no `allowBuilds` prompt.** Git installs normally run the
+package's `prepare` script, which pnpm ≥10 blocks until you allowlist it. These
+packages deliberately declare no `prepare` script: `lib/client.js` is committed,
+so the artifact pnpm needs is already in the tree. That also means the
+`devDependencies` — esbuild and cuelume — are never installed, because pnpm only
+installs devDependencies of a git dependency when it has a script to run.
+Regenerating the bundle is a local concern:
+
+```sh
+cd packages/session-notify && npm install && npm run build:client
+```
+
+**Reload the Web GUI page afterwards.** The client entry graph is injected into
+the HTML at page load, so an already-open tab cannot see a newly mounted plugin.
+A patch edit alone is picked up live (`patchReload: live`), but a new bundle is
+not.
+
+To pick up a newer commit:
+
+```sh
+dsh plugin --profile web update dsh-session-notify
+```
+
+### Installing a local checkout instead
+
+Useful while developing, since edits to `lib/client.js` take effect on reload
+without a re-install:
+
+```sh
+dsh plugin --profile web add ./packages/session-notify
+```
+
+The plugins in this workspace are currently also linked that way, so both routes
+are live at once. If you prefer only the git install, remove the `session-notify`
+and `rate-badge` rows this repository added to
+`~/.dsh/profiles/web/cordis.patch.yml` and delete the two symlinks from that
+profile's `node_modules`.
+
+## Build and test
+
+Each package is standalone — no workspace root, no shared dependency install:
+
+```sh
+cd packages/<name>
+npm install              # esbuild (+ cuelume, for session-notify)
+npm run build:client     # writes lib/client.js
+npm test                 # node --test test/*.test.js
+```
+
+`lib/client.js` is committed, so installing a package never requires a build
+step — the same trade the reference plugin in this profile makes.
+
+## Design notes
+
+**Why the host half exists at all.** A cue plays in the browser and the badge is
+pure clock arithmetic, so neither needs a server. Both need a *persisted
+preference*, though, and there are two mechanical reasons the host half is
+unavoidable: DSH discovers a browser half by scanning live Loader entries for
+packages declaring `dsh.client`, so even a client-only plugin needs a mounted
+row; and the settings toggle has to outlive a reload. Each host half therefore
+does exactly one thing — serve `$DSH_HOME/<plugin>/prefs.json` over a
+loopback-authority RPC — and contains no business logic.
+
+**How "main session, not subagent" is decided.** `session-notify` subscribes to
+`ctx.sessions.list` (an `ObservableSnapshot<SessionListState>`) and reads, per
+session, `running` and `origin`. `origin === 'subagent'` is the harness's own
+durable subagent marker — the same test its session-lineage index uses — so a
+subagent session is skipped before any edge is considered. "Needs your input"
+comes from `ctx.uiSession.pendingInteractions`, the same map the sidebar's status
+dots are built from.
+
+**Why the first observation is silent.** A page that loads while sessions sit
+idle must not replay old completions, so the first sighting of a session (and of
+a pending interaction) only records state. This mirrors the Session Controller's
+own completion-reminder logic, which arms on a running→idle edge and deliberately
+skips the first observation.
+
+**Why the badge timer sleeps.** A closed badge arms a single timeout aimed at the
+next period boundary instead of ticking once a second; only an open popover with
+a visible countdown runs an interval. Both timers live in React effects, so
+unmounting clears them.
+
+## Related: the first-party rate-period pill
+
+The harness ships `@deepseek-ai/dsh-client-ui-rate-period`, a session-header
+peak/off-peak pill with a schedule popover. It is built but **not mounted** by any
+bundle in this profile, which is why no badge was visible.
+
+`rate-badge` is a separate implementation rather than a mount of that package,
+for one concrete reason: the requested on/off setting cannot govern a statically
+mounted plugin row. Owning the component is what makes the toggle work. If you
+would rather have the shipped pill, enable it in the profile patch and disable
+`rate-badge` instead:
+
+```yaml
+- insert:
+    - id: rate-period
+      name: '@deepseek-ai/dsh-client-ui-rate-period'
+```
+
+The schedule constants in `client/rate-period.js` match the shipped ones and the
+published pricing page: peak is Monday–Friday 01:00–04:00 and 06:00–10:00 UTC,
+window ends exclusive, everything else off-peak at half price.

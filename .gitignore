@@ -1,0 +1,17 @@
+# Build-time dependencies only.
+#
+# The served browser bundle (lib/client.js) is COMMITTED, so installing one of
+# these packages never needs a build and never pulls a dependency. esbuild and
+# cuelume are needed only to regenerate that file locally.
+node_modules/
+
+# Local npm cache, kept inside the workspace because the shared ~/.npm cache is
+# not writable here.
+.npm-cache/
+
+# Scratch space for inspecting upstream packages.
+.scratch/
+
+# OS and editor noise.
+.DS_Store
+*.log

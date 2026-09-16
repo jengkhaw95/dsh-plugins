@@ -1,0 +1,7 @@
+# dsh-session-notify bundle patch.
+# One package, one row: the host half owns the durable preference file and the
+# loopback RPC the settings page talks to; the browser half (dsh.client above)
+# owns the AudioContext, the cue library, and every pixel of the settings page.
+- insert:
+    - id: session-notify
+      name: dsh-session-notify
